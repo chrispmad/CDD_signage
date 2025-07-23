@@ -113,7 +113,7 @@ for (type in sign_types) {
       color = pal(type),
       stroke = FALSE,
       fillOpacity = 0.5,
-      popup = popupTable(layer_data, zcol = c("Sign_Type", "Sign Meaning",  "Location_sent", "Date_installed", "Date_sent", "Waterbody")),
+      popup = popupTable(layer_data, zcol = c("Sign_Type", "Sign Meaning",  "Location_sent", "Org", "Date_installed", "Date_sent", "Waterbody")),
       group = type
     )
 }
