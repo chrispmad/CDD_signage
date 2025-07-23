@@ -9,6 +9,13 @@ editor_options:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = F, message = F, warning = F)
+library(tidyverse)
+library(stringr)
+library(leaflet)
+library(leafpop)
+library(leaflet.extras)
+library(sf)
+library(readxl)
 ```
 
 ```{r read_data}
@@ -17,11 +24,116 @@ d = readxl::read_excel("data/Communications Coordination.xlsx", sheet = "All sig
 ```
 
 ```{r clean_data}
+# grab the acronyms
+acronyms <- na.omit(d[,22])
+topone<-names(acronyms)
+acronyms<-rbind(acronyms,topone)
+names(acronyms) <- "Acronym"
+#split them out where : is the divider, make new rows
+acronyms<-str_split(acronyms$Acronym, ":", simplify = T) |> 
+  as_tibble() |> 
+  rename(Acronym = V1, Meaning = V2)
 
+#now for the main part of the file
+locations<-d[,1:18]
+#replace spaces in the names
+names(locations)<-gsub(" ", "_", names(locations))
+names(locations)<-gsub("#", "Number", names(locations))
+names(locations)<-gsub("/", "_", names(locations))
+#remove all special characters in name now, except the underscore
+names(locations) <- gsub("[^[:alnum:]_]", "", names(locations))
+# fix date_sent and date_installed as they came from excel
+locations <- locations |>
+  mutate(
+    # Clean up Date_installed: parse as POSIX then drop timezone
+    Date_installed = as.Date(as.POSIXct(Date_installed, tz = "UTC")),
+    
+    # Clean up Date_sent: convert valid numeric strings to date, others to NA
+    Date_sent = as.numeric(Date_sent),
+    Date_sent = as.Date(Date_sent, origin = "1899-12-30")
+  )
+
+#grab the signs we know are installed
+installed<-locations |>
+  filter(Installed_Y_N_U == "Y")
+# now we convert anything in easting northing to Lat Lon - first get the ones with easting northing
+east_north<- installed |>
+  filter(!is.na(Easting))
+
+east_north <- east_north |>
+  mutate(
+    Longitude = Easting,
+    Latitude = Northing
+  ) |>
+  select(-Easting, -Northing)
+
+#create an sf object and convert to WGS84
+east_north_sf <- st_as_sf(east_north, coords = c("Longitude", "Latitude"), crs = 32611) |>
+  st_transform(4326)
+
+longlat<- installed |>
+  filter(!is.na(Longitude))
+
+longlat_sf<- longlat |>
+  mutate(
+    Latitude = Latitude,
+    Longitude = Longitude
+  ) |>
+  select(-Easting, -Northing) |>
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326)
+
+#now combine these
+signs_sf <- rbind(east_north_sf, longlat_sf)
+# clean up sign type
+signs_sf <- signs_sf |>
+  mutate(Sign_Acronym = sub("^([A-Z]+).*", "\\1", Sign_Type))
+# join on the meaning
+signs_sf <- signs_sf |>
+  left_join(acronyms, by = c("Sign_Acronym" = "Acronym"))
+signs_sf <- signs_sf |>
+  rename(`Sign Meaning` = Meaning)
 ```
 
 ```{r make_leaflet_map}
 
+sign_types <- unique(signs_sf$Sign_Type)
+pal <- colorFactor("Set1", domain = sign_types)
+
+l <- leaflet() |>
+  addTiles() |>
+  addProviderTiles("OpenStreetMap.Mapnik")
+
+for (type in sign_types) {
+  layer_data <- filter(signs_sf, Sign_Type == type)
+  
+  l <- l |>
+    addCircleMarkers(
+      data = layer_data,
+      radius = 5,
+      color = pal(type),
+      stroke = FALSE,
+      fillOpacity = 0.5,
+      popup = popupTable(layer_data, zcol = c("Sign_Type", "Sign Meaning",  "Location_sent", "Date_installed", "Date_sent", "Waterbody")),
+      group = type
+    )
+}
+
+l <- l |>
+  addLayersControl(
+    overlayGroups = sign_types,
+    options = layersControlOptions(collapsed = FALSE),
+    position = "bottomleft"
+  ) |>
+  addLegend(
+    position = "bottomright",
+    pal = pal,
+    values = ~Sign_Type,
+    title = "Sign Type",
+    data = signs_sf,
+    opacity = 1
+  )
+
+l
 ```
 
 
