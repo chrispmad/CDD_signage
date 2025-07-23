@@ -92,6 +92,7 @@ signs_sf <- signs_sf |>
   left_join(acronyms, by = c("Sign_Acronym" = "Acronym"))
 signs_sf <- signs_sf |>
   rename(`Sign Meaning` = Meaning)
+
 ```
 
 ```{r make_leaflet_map}
